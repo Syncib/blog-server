@@ -13,10 +13,11 @@ const app = express();
 
 const salt = bcrypt.genSaltSync(10);
 const secret = "mingiyapapale";
+
 app.use(
   cors({
     credentials: true,
-    origin: "https://mern-blog-sandy-eight.vercel.app/",
+    origin: "https://mern-blog-sandy-eight.vercel.app",
   })
 );
 app.use(express.json());
