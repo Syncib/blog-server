@@ -13,7 +13,12 @@ const app = express();
 
 const salt = bcrypt.genSaltSync(10);
 const secret = "mingiyapapale";
-app.use(cors({ credentials: true, origin: "https://mern-blog-sandy-eight.vercel.app/" }));
+app.use(
+  cors({
+    credentials: true,
+    origin: "https://mern-blog-sandy-eight.vercel.app/",
+  })
+);
 app.use(express.json());
 app.use(cookieParser());
 app.use("/uploads", express.static(__dirname + "/uploads"));
@@ -124,24 +129,24 @@ app.get("/post/:id", async (req, res) => {
   res.status(200).json(postDoc);
 });
 
-app.put('/post',uploadMiddleware.single('file'), async (req,res) => {
+app.put("/post", uploadMiddleware.single("file"), async (req, res) => {
   let newPath = null;
   if (req.file) {
-    const {originalname,path} = req.file;
-    const parts = originalname.split('.');
+    const { originalname, path } = req.file;
+    const parts = originalname.split(".");
     const ext = parts[parts.length - 1];
-    newPath = path+'.'+ext;
+    newPath = path + "." + ext;
     fs.renameSync(path, newPath);
   }
 
-  const {token} = req.cookies;
-  jwt.verify(token, secret, {}, async (err,info) => {
+  const { token } = req.cookies;
+  jwt.verify(token, secret, {}, async (err, info) => {
     if (err) throw err;
-    const {id,title,summary,content} = req.body;
+    const { id, title, summary, content } = req.body;
     const postDoc = await Post.findById(id);
     const isAuthor = JSON.stringify(postDoc.author) === JSON.stringify(info.id);
     if (!isAuthor) {
-      return res.status(400).json('you are not the author');
+      return res.status(400).json("you are not the author");
     }
     await postDoc.update({
       title,
@@ -152,7 +157,6 @@ app.put('/post',uploadMiddleware.single('file'), async (req,res) => {
 
     res.json(postDoc);
   });
-
 });
 
 app.post("/logout", (req, res) => {
@@ -164,7 +168,9 @@ mongoose
     "mongodb+srv://saqib:saqib12@cluster0.kuoxsy9.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
   )
   .then(() => {
-    app.listen(4000, () => {
-      console.log("Listening on Port 4000");
-    });
+    console.log("server is running");
+  })
+  .catch((error) => {
+    console.log(error);
   });
+  module.exports = app;
