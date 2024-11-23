@@ -11,8 +11,6 @@ const uploadMiddleware = multer({ dest: "uploads/" });
 const fs = require("fs");
 const cloudinary = require("cloudinary").v2;
 
-// Load environment variables from .env file
-
 // Cloudinary Configuration
 cloudinary.config({
   cloud_name: "dnur3z7la",
@@ -40,7 +38,7 @@ app.post("/register", async (req, res) => {
     });
     res.json(userDoc);
   } catch (e) {
-    console.log(e);
+    console.error(e);
     res.status(400).json(e);
   }
 });
@@ -68,7 +66,10 @@ app.post("/login", async (req, res) => {
 app.get("/profile", (req, res) => {
   const { token } = req.cookies;
   jwt.verify(token, secret, {}, (err, info) => {
-    if (err) throw err;
+    if (err) {
+      console.error("JWT Verification Error:", err);
+      return res.status(500).json({ error: "Token verification failed" });
+    }
     res.json(info);
   });
 });
@@ -83,100 +84,72 @@ app.post("/post", uploadMiddleware.single("file"), async (req, res) => {
   const { file } = req;
   const { token } = req.cookies;
 
-  if (file) {
-    // Upload the file to Cloudinary
-    cloudinary.uploader.upload(file.path, async (error, result) => {
-      if (error) {
-        console.log(error);
-        return res.status(500).json({ error: "Failed to upload image" });
-      }
-
-      // Extract the URL of the uploaded image
-      const imageUrl = result.secure_url;
-
-      // Remove the file after uploading to Cloudinary
-      fs.unlinkSync(file.path);
-
-      // Handle the post creation logic
-      jwt.verify(token, secret, {}, async (err, info) => {
-        if (err) throw err;
-        const { title, summary, content } = req.body;
-        const postDoc = await Post.create({
-          title,
-          summary,
-          content,
-          cover: imageUrl, // Store the Cloudinary image URL
-          author: info.id,
-        });
-        res.json(postDoc);
-      });
-    });
-  } else {
-    res.status(400).json({ error: "No image uploaded" });
-  }
-});
-
-// Update Post with Image Upload (Cloudinary)
-app.put("/post", uploadMiddleware.single("file"), async (req, res) => {
-  let newCoverUrl = null;
-
-  if (req.file) {
-    // Upload the file to Cloudinary
-    cloudinary.uploader.upload(req.file.path, async (error, result) => {
-      if (error) {
-        console.log(error);
-        return res.status(500).json({ error: "Failed to upload image" });
-      }
-      newCoverUrl = result.secure_url; // Get the image URL from Cloudinary
-
-      // Remove the file after uploading to Cloudinary
-      fs.unlinkSync(req.file.path);
-    });
+  if (!file) {
+    return res.status(400).json({ error: "No image uploaded" });
   }
 
-  const { token } = req.cookies;
-  jwt.verify(token, secret, {}, async (err, info) => {
-    if (err) throw err;
-    const { id, title, summary, content } = req.body;
-    const postDoc = await Post.findById(id);
-    const isAuthor = JSON.stringify(postDoc.author) === JSON.stringify(info.id);
-    if (!isAuthor) {
-      return res.status(400).json("you are not the author");
+  // Upload file to Cloudinary
+  cloudinary.uploader.upload(file.path, async (error, result) => {
+    if (error) {
+      console.error("Cloudinary Upload Error:", error);
+      return res.status(500).json({ error: "Failed to upload image" });
     }
 
-    await postDoc.update({
-      title,
-      summary,
-      content,
-      cover: newCoverUrl || postDoc.cover, // Use the new image URL or the old one if no file was uploaded
-    });
+    // Extract the URL of the uploaded image
+    const imageUrl = result.secure_url;
 
-    res.json(postDoc);
+    // Remove the file after uploading to Cloudinary
+    fs.unlinkSync(file.path);
+
+    jwt.verify(token, secret, {}, async (err, info) => {
+      if (err) {
+        console.error("JWT Verification Error:", err);
+        return res.status(500).json({ error: "Token verification failed" });
+      }
+
+      const { title, summary, content } = req.body;
+      const postDoc = await Post.create({
+        title,
+        summary,
+        content,
+        cover: imageUrl, // Store the Cloudinary image URL
+        author: info.id,
+      });
+
+      res.json(postDoc);
+    });
   });
 });
 
 // Get All Posts
 app.get("/post", async (req, res) => {
-  res.json(
-    await Post.find()
+  try {
+    const posts = await Post.find()
       .populate("author", ["username"])
       .sort({ createdAt: -1 })
-      .limit(20)
-  );
+      .limit(20);
+    res.json(posts);
+  } catch (e) {
+    console.error("Error fetching posts:", e);
+    res.status(500).json({ error: "Failed to fetch posts" });
+  }
 });
 
 // Get Post by ID
 app.get("/post/:id", async (req, res) => {
   const { id } = req.params;
-  const postDoc = await Post.findById(id).populate("author", ["username"]);
-  res.json(postDoc);
+  try {
+    const postDoc = await Post.findById(id).populate("author", ["username"]);
+    res.json(postDoc);
+  } catch (e) {
+    console.error("Error fetching post by ID:", e);
+    res.status(500).json({ error: "Failed to fetch post" });
+  }
 });
 
 // MongoDB Connection
 mongoose
-  .connect(
-    "mongodb+srv://saqib:saqib12@cluster0.kuoxsy9.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-  )
+  .connect("mongodb+srv://saqib:saqib12@cluster0.kuoxsy9.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
   .then(() => {
     console.log("Connected to MongoDB, server is running...");
   });
