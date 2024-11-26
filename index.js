@@ -30,7 +30,7 @@ const storage = new CloudinaryStorage({
 const uploadMiddleware = multer({ storage });
 
 const salt = bcrypt.genSaltSync(10);
-const secret = "asdfe45we45w345wegw345werjktjwertkj";
+const secret = "mingiyapapale";
 
 app.use(
   cors({
@@ -102,17 +102,26 @@ app.post("/logout", (req, res) => {
 // Create Post with Cloudinary Upload
 app.post("/post", uploadMiddleware.single("file"), async (req, res) => {
   const { token } = req.cookies;
+
+  if (!token) {
+    return res.status(401).json({ error: "Token is missing. Please log in." });
+  }
+
   jwt.verify(token, secret, {}, async (err, info) => {
-    if (err) throw err;
+    if (err) {
+      return res.status(403).json({ error: "Invalid or expired token." });
+    }
+
     const { title, summary, content } = req.body;
 
     const postDoc = await Post.create({
       title,
       summary,
       content,
-      cover: req.file.path, // Cloudinary URL
+      cover: req.file.path,
       author: info.id,
     });
+
     res.json(postDoc);
   });
 });
