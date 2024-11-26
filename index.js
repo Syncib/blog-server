@@ -7,9 +7,10 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const multer = require("multer");
-const uploadMiddleware = multer({ dest: "uploads/" });
-const fs = require("fs");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("cloudinary").v2;
+
+const app = express();
 
 // Cloudinary Configuration
 cloudinary.config({
@@ -18,15 +19,33 @@ cloudinary.config({
   api_secret: "RA4obr8RwK-mKD2n2UtBQvXfsrY",
 });
 
+// Multer Storage for Cloudinary
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "uploads", // Cloudinary folder
+    allowed_formats: ["jpg", "png", "jpeg", "gif", "webp"], // Allowed file types
+  },
+});
+const uploadMiddleware = multer({ storage });
+
 const salt = bcrypt.genSaltSync(10);
 const secret = "asdfe45we45w345wegw345werjktjwertkj";
 
-const app = express();
-
-app.use(cors({ credentials: true, origin: "https://mern-blog-sandy-eight.vercel.app" }));
+app.use(cors({ credentials: true, origin: "http://localhost:3000" }));
 app.use(express.json());
 app.use(cookieParser());
-app.use("/uploads", express.static(__dirname + "/uploads"));
+
+mongoose
+  .connect(
+    "mongodb+srv://saqib:saqib12@cluster0.kuoxsy9.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+  )
+  .then(() => {
+    console.log("Server is running");
+  })
+  .catch((error) => {
+    console.log(error);
+  });
 
 // User Registration
 app.post("/register", async (req, res) => {
@@ -38,7 +57,7 @@ app.post("/register", async (req, res) => {
     });
     res.json(userDoc);
   } catch (e) {
-    console.error(e);
+    console.log(e);
     res.status(400).json(e);
   }
 });
@@ -49,7 +68,6 @@ app.post("/login", async (req, res) => {
   const userDoc = await User.findOne({ username });
   const passOk = bcrypt.compareSync(password, userDoc.password);
   if (passOk) {
-    // logged in
     jwt.sign({ username, id: userDoc._id }, secret, {}, (err, token) => {
       if (err) throw err;
       res.cookie("token", token).json({
@@ -62,14 +80,11 @@ app.post("/login", async (req, res) => {
   }
 });
 
-// User Profile
+// Get User Profile
 app.get("/profile", (req, res) => {
   const { token } = req.cookies;
   jwt.verify(token, secret, {}, (err, info) => {
-    if (err) {
-      console.error("JWT Verification Error:", err);
-      return res.status(500).json({ error: "Token verification failed" });
-    }
+    if (err) throw err;
     res.json(info);
   });
 });
@@ -79,85 +94,68 @@ app.post("/logout", (req, res) => {
   res.cookie("token", "").json("ok");
 });
 
-// Create Post with Image Upload (Cloudinary)
+// Create Post with Cloudinary Upload
 app.post("/post", uploadMiddleware.single("file"), async (req, res) => {
-  const { file } = req;
   const { token } = req.cookies;
+  jwt.verify(token, secret, {}, async (err, info) => {
+    if (err) throw err;
+    const { title, summary, content } = req.body;
 
-  if (!file) {
-    return res.status(400).json({ error: "No image uploaded" });
-  }
+    const postDoc = await Post.create({
+      title,
+      summary,
+      content,
+      cover: req.file.path, // Cloudinary URL
+      author: info.id,
+    });
+    res.json(postDoc);
+  });
+});
 
-  // Upload file to Cloudinary
-  cloudinary.uploader.upload(file.path, async (error, result) => {
-    if (error) {
-      console.error("Cloudinary Upload Error:", error);
-      return res.status(500).json({ error: "Failed to upload image" });
+// Update Post with Optional File Upload
+app.put("/post", uploadMiddleware.single("file"), async (req, res) => {
+  const { token } = req.cookies;
+  jwt.verify(token, secret, {}, async (err, info) => {
+    if (err) throw err;
+    const { id, title, summary, content } = req.body;
+    const postDoc = await Post.findById(id);
+
+    const isAuthor = JSON.stringify(postDoc.author) === JSON.stringify(info.id);
+    if (!isAuthor) {
+      return res.status(400).json("You are not the author");
     }
 
-    // Extract the URL of the uploaded image
-    const imageUrl = result.secure_url;
+    let cover = postDoc.cover; // Keep the existing cover by default
+    if (req.file) {
+      cover = req.file.path; // Update cover if a new file is uploaded
+    }
 
-    // Remove the file after uploading to Cloudinary
-    fs.unlinkSync(file.path);
-
-    jwt.verify(token, secret, {}, async (err, info) => {
-      if (err) {
-        console.error("JWT Verification Error:", err);
-        return res.status(500).json({ error: "Token verification failed" });
-      }
-
-      const { title, summary, content } = req.body;
-      const postDoc = await Post.create({
-        title,
-        summary,
-        content,
-        cover: imageUrl, // Store the Cloudinary image URL
-        author: info.id,
-      });
-
-      res.json(postDoc);
+    await postDoc.update({
+      title,
+      summary,
+      content,
+      cover,
     });
+
+    res.json(postDoc);
   });
 });
 
 // Get All Posts
 app.get("/post", async (req, res) => {
-  try {
-    const posts = await Post.find()
+  res.json(
+    await Post.find()
       .populate("author", ["username"])
       .sort({ createdAt: -1 })
-      .limit(20);
-    res.json(posts);
-  } catch (e) {
-    console.error("Error fetching posts:", e);
-    res.status(500).json({ error: "Failed to fetch posts" });
-  }
+      .limit(20)
+  );
 });
 
-// Get Post by ID
+// Get Single Post
 app.get("/post/:id", async (req, res) => {
   const { id } = req.params;
-  try {
-    const postDoc = await Post.findById(id).populate("author", ["username"]);
-    res.json(postDoc);
-  } catch (e) {
-    console.error("Error fetching post by ID:", e);
-    res.status(500).json({ error: "Failed to fetch post" });
-  }
-});
-
-// MongoDB Connection
-mongoose
-  .connect("mongodb+srv://saqib:saqib12@cluster0.kuoxsy9.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-  .then(() => {
-    console.log("Connected to MongoDB, server is running...");
-  });
-
-// Start Express Server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  const postDoc = await Post.findById(id).populate("author", ["username"]);
+  res.json(postDoc);
 });
 
 module.exports = app;
